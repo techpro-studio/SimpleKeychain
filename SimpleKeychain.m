@@ -10,6 +10,44 @@
 #import <Security/Security.h>
 
 
+@interface KeychainResult ()
+
++(instancetype) success: ( NSString * _Nonnull)value;
++(instancetype) error: ( NSError * _Nonnull)error;
+
+
+@end
+
+
+@implementation KeychainResult
+
+
++ (instancetype)success:(NSString *)value{
+    return [[KeychainResult alloc] initWithValue:value andError:nil];
+}
+
++ (instancetype)error:(NSError *)error {
+    return [[KeychainResult alloc] initWithValue:nil andError:error];
+}
+
+
+- (instancetype)initWithValue:(NSString *) value andError: (NSError *) error
+{
+    self = [super init];
+    if (self) {
+        self->_value = value;
+        self->_error = error;
+    }
+    return self;
+}
+
+@end
+
+
+static NSError* errorWithOSStatus(OSStatus status){
+    return [NSError errorWithDomain:@"keychain" code:status userInfo:@{NSLocalizedDescriptionKey: @"OSStatus error"}];
+}
+
 @implementation SimpleKeychain
 {
     NSString * sharedGroup;
@@ -39,14 +77,14 @@
     if (sharedGroup)
         dict[(__bridge  NSString*) kSecAttrAccessGroup] = sharedGroup;
     return dict;
-
 }
 
 
 
--(NSString *) get: (NSString *)key
+
+-(KeychainResult *) get: (NSString *) key
 {
-    __block NSString *result;
+    __block KeychainResult* result;
     dispatch_sync(syncQueue, ^{
         CFTypeRef dataTypeRef = NULL;
         __auto_type query = [self makeBaseQuery:key];
@@ -55,15 +93,17 @@
         OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef) query, &dataTypeRef);
         if (status == errSecSuccess){
             NSData *data = (__bridge NSData *)dataTypeRef;
-            result = [NSString stringWithUTF8String: [data bytes]];
+            result = [KeychainResult success:[NSString stringWithUTF8String: [data bytes]]];
+        } else{
+            result = [KeychainResult error:errorWithOSStatus(status)];
         }
     });
     return result;
 }
 
--(BOOL)set: (NSString *)value forKey:(NSString *)key
+-(NSError *) set:(NSString *) value forKey: (NSString *) key;
 {
-    __block BOOL result = NO;
+    __block NSError* error = nil;
     dispatch_sync(syncQueue, ^{
         NSMutableDictionary * query = [self makeBaseQuery:key];
         query[(__bridge  NSString*)kSecMatchLimit] =  (__bridge  NSString*) kSecMatchLimitOne;
@@ -73,30 +113,36 @@
             case errSecSuccess:
                 query[(__bridge  NSString*)kSecMatchLimit] = nil;
                 status = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef) @{(__bridge id)kSecValueData: [value dataUsingEncoding:NSUTF8StringEncoding]});
-                if (status == errSecSuccess){
-                    result = YES;
+                if (status != errSecSuccess){
+                    error = errorWithOSStatus(status);
                 }
                 break;
             case errSecItemNotFound:
                 query[(__bridge  NSString*)kSecMatchLimit] = nil;
                 query[(id)kSecValueData] = [value dataUsingEncoding:NSUTF8StringEncoding];
                 status = SecItemAdd((__bridge CFDictionaryRef)query, nil);
-                if (status == errSecSuccess){
-                    result = YES;
+                if (status != errSecSuccess){
+                    error = errorWithOSStatus(status);
                 }
                 break;
             default:
+                error = errorWithOSStatus(status);
                 break;
         }
     });
-    return result;
+    return error;
 }
 
--(void)remove: (NSString *)key
+-(NSError *) remove: (NSString *) key
 {
+    __block NSError* error = nil;
     dispatch_sync(syncQueue, ^{
-        SecItemDelete((__bridge CFDictionaryRef) [self makeBaseQuery:key]);
+        OSStatus status = SecItemDelete((__bridge CFDictionaryRef) [self makeBaseQuery:key]);
+        if (status != errSecSuccess){
+            error = errorWithOSStatus(status);
+        }
     });
+    return error;
 }
 
 @end

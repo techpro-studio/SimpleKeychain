@@ -10,13 +10,21 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+
+@interface KeychainResult : NSObject
+
+@property (nonatomic, readonly, nullable) NSString *value;
+@property (nonatomic, readonly, nullable) NSError* error;
+
+@end
+
 @interface SimpleKeychain : NSObject
 
 -(instancetype) initWithSharedGroup: (nullable NSString *) sharedGroup;
 
--(nullable NSString *) get: (NSString *) key;
--(BOOL) set:(NSString *) value forKey: (NSString *) key;
--(void) remove: (NSString *) key;
+-(KeychainResult *) get: (NSString *) key;
+-(NSError *) set:(NSString *) value forKey: (NSString *) key;
+-(NSError *) remove: (NSString *) key;
 
 @end
 
